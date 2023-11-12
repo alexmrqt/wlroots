@@ -1,6 +1,6 @@
 renderers = get_option('renderers')
 if 'auto' in renderers and get_option('auto_features').enabled()
-	renderers = ['gles2', 'vulkan']
+	renderers = ['gles2', 'vulkan', 'g2d']
 elif 'auto' in renderers and get_option('auto_features').disabled()
 	renderers = []
 endif
@@ -34,6 +34,10 @@ endif
 
 if 'vulkan' in renderers or 'auto' in renderers
 	subdir('vulkan')
+endif
+
+if 'g2d' in renderers or 'auto' in renderers
+	subdir('g2d')
 endif
 
 subdir('pixman')
