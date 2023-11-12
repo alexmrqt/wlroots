@@ -22,6 +22,9 @@ endif
 if not features.get('vulkan-renderer')
 	exclude_files += 'render/vulkan.h'
 endif
+if not features.get('g2d-renderer')
+	exclude_files += 'render/g2d.h'
+endif
 
 install_subdir('wlr',
 	install_dir: get_option('includedir'),

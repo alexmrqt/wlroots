@@ -92,6 +92,7 @@ features = {
 	'xwayland': false,
 	'gles2-renderer': false,
 	'vulkan-renderer': false,
+	'g2d-renderer': false,
 	'gbm-allocator': false,
 }
 internal_features = {

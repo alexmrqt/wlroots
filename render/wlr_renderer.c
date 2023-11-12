@@ -25,6 +25,10 @@
 #include <wlr/render/vulkan.h>
 #endif // WLR_HAS_VULKAN_RENDERER
 
+#if WLR_HAS_G2D_RENDERER
+#include <wlr/render/g2d.h>
+#endif // WLR_HAS_G2D_RENDERER
+
 #include "backend/backend.h"
 #include "render/pixel_format.h"
 #include "render/wlr_renderer.h"
@@ -280,6 +284,9 @@ struct wlr_renderer *renderer_autocreate_with_drm_fd(int drm_fd) {
 #if WLR_HAS_VULKAN_RENDERER
 		"vulkan",
 #endif
+#if WLR_HAS_G2D_RENDERER
+		"g2d",
+#endif
 		"pixman",
 		NULL
 	};
@@ -309,6 +316,19 @@ struct wlr_renderer *renderer_autocreate_with_drm_fd(int drm_fd) {
 			renderer = wlr_vk_renderer_create_with_drm_fd(drm_fd);
 			if (!renderer) {
 				log_creation_failure(is_auto, "Failed to create a Vulkan renderer");
+			}
+		}
+	}
+#endif
+
+#if WLR_HAS_G2D_RENDERER
+	if (!renderer && (is_auto || strcmp(renderer_name, "g2d") == 0)) {
+		if (drm_fd < 0) {
+			log_creation_failure(is_auto, "Cannot create G2D renderer: no DRM FD available");
+		} else {
+			renderer = wlr_g2d_renderer_create_with_drm_fd(drm_fd);
+			if (!renderer) {
+				log_creation_failure(is_auto, "Failed to create a G2D renderer");
 			}
 		}
 	}
