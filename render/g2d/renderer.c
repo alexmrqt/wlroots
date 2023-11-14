@@ -75,12 +75,14 @@ bool wlr_texture_is_g2d(struct wlr_texture *texture) {
 
 static struct wlr_g2d_texture *get_texture(
 		struct wlr_texture *wlr_texture) {
+	wlr_log(WLR_DEBUG, "get_texture");
 	assert(wlr_texture_is_g2d(wlr_texture));
 	struct wlr_g2d_texture *texture = wl_container_of(wlr_texture, texture, wlr_texture);
 	return texture;
 }
 
 static void texture_destroy(struct wlr_texture *wlr_texture) {
+	wlr_log(WLR_DEBUG, "texture_destroy");
 	struct wlr_g2d_texture *texture = get_texture(wlr_texture);
 	wl_list_remove(&texture->link);
 	if (texture->bo) {
@@ -94,6 +96,7 @@ static const struct wlr_texture_impl texture_impl = {
 };
 
 static void destroy_buffer(struct wlr_g2d_buffer *buffer) {
+	wlr_log(WLR_DEBUG, "destroy_buffer");
 	int drm_fd = buffer->renderer->drm_fd;
 
 	wl_list_remove(&buffer->link);
@@ -109,6 +112,7 @@ static void destroy_buffer(struct wlr_g2d_buffer *buffer) {
 }
 
 static void handle_destroy_buffer(struct wl_listener *listener, void *data) {
+	wlr_log(WLR_DEBUG, "handle_destroy_buffer");
 	struct wlr_g2d_buffer *buffer =
 		wl_container_of(listener, buffer, buffer_destroy);
 	destroy_buffer(buffer);
@@ -173,6 +177,7 @@ error_buffer:
 
 static bool g2d_bind_buffer(struct wlr_renderer *wlr_renderer,
 		struct wlr_buffer *wlr_buffer) {
+	wlr_log(WLR_DEBUG, "g2d_bind_buffer");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 
 	if (renderer->current_buffer != NULL) {
@@ -197,15 +202,16 @@ static bool g2d_bind_buffer(struct wlr_renderer *wlr_renderer,
 
 static bool g2d_begin(struct wlr_renderer *wlr_renderer, uint32_t width,
 		uint32_t height) {
+	wlr_log(WLR_DEBUG, "g2d_begin");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 
 	renderer->width = width;
 	renderer->height = height;
 
-	renderer->scissor_box->x = 0;
-	renderer->scissor_box->y = 0;
-	renderer->scissor_box->width = width;
-	renderer->scissor_box->height = height;
+	renderer->scissor_box.x = 0;
+	renderer->scissor_box.y = 0;
+	renderer->scissor_box.width = width;
+	renderer->scissor_box.height = height;
 
 	assert(renderer->current_buffer != NULL);
 
@@ -213,6 +219,7 @@ static bool g2d_begin(struct wlr_renderer *wlr_renderer, uint32_t width,
 }
 
 static void g2d_end(struct wlr_renderer *wlr_renderer) {
+	wlr_log(WLR_DEBUG, "g2d_end");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 
 	assert(renderer->current_buffer != NULL);
@@ -316,6 +323,7 @@ struct g2d_image g2d_image_create_bits(struct exynos_bo *bo,
 		uint32_t color_mode,
 		unsigned int width, unsigned int height,
 		void *data, unsigned int stride) {
+	wlr_log(WLR_DEBUG, "g2d_image_create_bits");
 
 	struct g2d_image img = {0};
 
@@ -333,6 +341,7 @@ struct g2d_image g2d_image_create_bits(struct exynos_bo *bo,
 
 static void g2d_clear(struct wlr_renderer *wlr_renderer,
 		const float color[static 4]) {
+	wlr_log(WLR_DEBUG, "g2d_clear");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_g2d_buffer *buffer = renderer->current_buffer;
 	int ret = 0;
@@ -340,10 +349,10 @@ static void g2d_clear(struct wlr_renderer *wlr_renderer,
 	buffer->image.color = float_to_g2d_color(color, buffer->image.color_mode);
 
 	ret = g2d_solid_fill(renderer->ctx, &buffer->image,
-			renderer->scissor_box->x,
-			renderer->scissor_box->y,
-			renderer->scissor_box->width,
-			renderer->scissor_box->height);
+			renderer->scissor_box.x,
+			renderer->scissor_box.y,
+			renderer->scissor_box.width,
+			renderer->scissor_box.height);
 	if (ret < 0) {
 		wlr_log(WLR_ERROR, "Error when invoking g2d_solid_fill");
 	}
@@ -356,6 +365,7 @@ static void g2d_clear(struct wlr_renderer *wlr_renderer,
 
 static void g2d_scissors(struct wlr_renderer *wlr_renderer,
 		struct wlr_box *box) {
+	wlr_log(WLR_DEBUG, "g2d_scissors");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 
 	uint32_t w = renderer->width;
@@ -365,7 +375,7 @@ static void g2d_scissors(struct wlr_renderer *wlr_renderer,
 		dst = (struct wlr_box) {0, 0, 0, 0}; // empty
 	}
 
-	renderer->scissor_box = &dst;
+	renderer->scissor_box = dst;
 }
 
 bool can_g2d_handle_transform(const float matrix[static 9]) {
@@ -377,6 +387,7 @@ static bool g2d_render_subtexture_with_matrix(
 		struct wlr_renderer *wlr_renderer, struct wlr_texture *wlr_texture,
 		const struct wlr_fbox *fbox, const float matrix[static 9],
 		float alpha) {
+	wlr_log(WLR_DEBUG, "g2d_render_subtexture_with_matrix");
 	// Only simple translation and scaling can be accelerated
 	if (!can_g2d_handle_transform(matrix)) {
 		wlr_log(WLR_ERROR, "G2D cannot render complex matrix transformations");
@@ -408,7 +419,7 @@ static bool g2d_render_subtexture_with_matrix(
 		return true;
 
 	// Apply scissors
-	if (!wlr_box_intersection(&box_dst, renderer->scissor_box, &box_dst))
+	if (!wlr_box_intersection(&box_dst, &renderer->scissor_box, &box_dst))
 		return true;
 
 	// Project box_dst cropping to src coordinates
@@ -438,6 +449,7 @@ static bool g2d_render_subtexture_with_matrix(
 
 static void g2d_render_quad_with_matrix(struct wlr_renderer *wlr_renderer,
 		const float color[static 4], const float matrix[static 9]) {
+	wlr_log(WLR_DEBUG, "g2d_render_quad_with_matrix");
 	// Only simple translation and scaling can be accelerated
 	if (!can_g2d_handle_transform(matrix)) {
 		wlr_log(WLR_ERROR, "G2D cannot render complex matrix transformations");
@@ -461,7 +473,7 @@ static void g2d_render_quad_with_matrix(struct wlr_renderer *wlr_renderer,
 	box.height = m[4];
 
 	// Apply scissors
-	if (!wlr_box_intersection(&box, renderer->scissor_box, &box)) {
+	if (!wlr_box_intersection(&box, &renderer->scissor_box, &box)) {
 		return;
 	}
 
@@ -503,6 +515,7 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 		uint32_t drm_format, uint32_t stride,
 		uint32_t width, uint32_t height, uint32_t src_x, uint32_t src_y,
 		uint32_t dst_x, uint32_t dst_y, void *data) {
+	wlr_log(WLR_DEBUG, "g2d_read_pixels");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_g2d_buffer *buffer = renderer->current_buffer;
 	struct g2d_image src_img = {0};
@@ -522,7 +535,7 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 	}
 
 	// Apply scissors
-	if (!wlr_box_intersection(&box, renderer->scissor_box, &box))
+	if (!wlr_box_intersection(&box, &renderer->scissor_box, &box))
 		goto destroy_bo;
 
 	err = g2d_blend(renderer->ctx, &src_img, &buffer->image, box.x, box.y,
@@ -547,6 +560,7 @@ destroy_bo:
 }
 
 static void g2d_destroy(struct wlr_renderer *wlr_renderer) {
+	wlr_log(WLR_DEBUG, "g2d_destroy");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_g2d_buffer *buffer, *buffer_tmp;
 	struct wlr_g2d_texture *tex, *tex_tmp;
@@ -597,6 +611,7 @@ static struct wlr_g2d_texture *g2d_texture_create(
 
 static struct wlr_texture *g2d_texture_from_buffer(struct wlr_renderer *wlr_renderer,
 		struct wlr_buffer *buffer) {
+	wlr_log(WLR_DEBUG, "g2d_texture_from_buffer");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	void *data;
 	uint32_t format;
@@ -637,6 +652,7 @@ static struct wlr_texture *g2d_texture_from_buffer(struct wlr_renderer *wlr_rend
 
 static struct wlr_render_pass *g2d_begin_buffer_pass(struct wlr_renderer *wlr_renderer,
 		struct wlr_buffer *wlr_buffer, const struct wlr_buffer_pass_options *options) {
+	wlr_log(WLR_DEBUG, "g2d_begin_buffer_pass");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 
 	struct wlr_g2d_buffer *buffer = get_or_create_buffer(renderer, wlr_buffer);
