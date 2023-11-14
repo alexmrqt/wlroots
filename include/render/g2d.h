@@ -19,7 +19,7 @@ struct wlr_g2d_pixel_format {
 
 struct wlr_g2d_renderer {
 	struct wlr_renderer wlr_renderer;
-	struct wlr_box *scissor_box;
+	struct wlr_box scissor_box;
 
 	struct wl_list buffers; // wlr_g2d_buffer.link
 	struct wl_list textures; // wlr_g2d_texture.link
