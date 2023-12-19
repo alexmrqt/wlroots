@@ -85,8 +85,8 @@ static void texture_destroy(struct wlr_texture *wlr_texture) {
 	wlr_log(WLR_DEBUG, "texture_destroy");
 	struct wlr_g2d_texture *texture = get_texture(wlr_texture);
 	wl_list_remove(&texture->link);
-	if (texture->bo) {
-		exynos_buffer_destroy(texture->bo);
+	if (texture->userptr) {
+		free(texture->userptr);
 	}
 	free(texture);
 }
@@ -191,6 +191,7 @@ static bool g2d_bind_buffer(struct wlr_renderer *wlr_renderer,
 
 	struct wlr_g2d_buffer *buffer = get_or_create_buffer(renderer, wlr_buffer);
 	if (buffer == NULL) {
+		wlr_log(WLR_ERROR, "Failed to create and bind a new buffer");
 		return false;
 	}
 
@@ -286,59 +287,6 @@ unsigned int float_to_g2d_color(const float color[static 4], uint32_t g2d_format
 	}
 }
 
-struct exynos_bo *exynos_mapped_buffer_create(struct exynos_device *dev, unsigned long size) {
-	struct exynos_bo *bo;
-
-	bo = exynos_bo_create(dev, size, 0);
-	if (!bo) {
-		wlr_log(WLR_ERROR, "Error when allocating image buffer");
-		return bo;
-	}
-
-	if (!exynos_bo_map(bo)) {
-		wlr_log(WLR_ERROR, "Error when mapping image buffer");
-		exynos_bo_destroy(bo);
-		return NULL;
-	}
-
-	return bo;
-}
-
-struct exynos_bo *exynos_buffer_create(struct exynos_device *dev, unsigned long size) {
-	struct exynos_bo *bo;
-
-	bo = exynos_bo_create(dev, size, 0);
-	if (!bo)
-		wlr_log(WLR_ERROR, "Error when allocating image buffer");
-
-	return bo;
-}
-
-void exynos_buffer_destroy(struct exynos_bo *bo)
-{
-	exynos_bo_destroy(bo);
-}
-
-struct g2d_image g2d_image_create_bits(struct exynos_bo *bo,
-		uint32_t color_mode,
-		unsigned int width, unsigned int height,
-		void *data, unsigned int stride) {
-	wlr_log(WLR_DEBUG, "g2d_image_create_bits");
-
-	struct g2d_image img = {0};
-
-	img.bo[0] = bo->handle;
-	img.width = width;
-	img.height = height;
-	img.stride = stride;
-	img.buf_type = G2D_IMGBUF_GEM;
-	img.color_mode = color_mode;
-
-	memcpy(bo->vaddr, data, height * stride);
-
-	return img;
-}
-
 static void g2d_clear(struct wlr_renderer *wlr_renderer,
 		const float color[static 4]) {
 	wlr_log(WLR_DEBUG, "g2d_clear");
@@ -379,7 +327,7 @@ static void g2d_scissors(struct wlr_renderer *wlr_renderer,
 }
 
 bool can_g2d_handle_transform(const float matrix[static 9]) {
-	return matrix[1] != 0.0 || matrix[3] != 0.0 || matrix[0] < 0.0 || matrix[4] < 0.0;
+	return matrix[1] < 1e-5f || matrix[1] > -1e-5f || matrix[3] < 1e-5f || matrix[3] > -1e-5f || matrix[0] < 0.0 || matrix[4] < 0.0;
 }
 
 //TODO: support alpha
@@ -397,36 +345,27 @@ static bool g2d_render_subtexture_with_matrix(
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_g2d_texture *texture = get_texture(wlr_texture);
 	struct wlr_g2d_buffer *buffer = renderer->current_buffer;
-	struct wlr_box box_src, box_tr, box_dst;
+	struct wlr_box box_src, box_dst;
 
 	struct g2d_image tex_img = texture->image;
 
 	int err = 0;
 
-	// Compute transformed texture coordinates
-	box_tr.x = roundf(matrix[2]);
-	box_tr.y = roundf(matrix[5]);
-	box_tr.width = roundf(matrix[0]*tex_img.width);
-	box_tr.height = roundf(matrix[1]*tex_img.height);
+	box_src.x = 0;
+	box_src.y = 0;
+	box_src.width = texture->image.width;
+	box_src.height = texture->image.height;
 
-	box_dst.x = roundf(fbox->x);
-	box_dst.y = roundf(fbox->y);
+	box_dst.x = roundf(fbox->x*matrix[0]/fbox->width + matrix[2]);
+	box_dst.y = roundf(fbox->y*matrix[4]/fbox->height + matrix[5]);
 	box_dst.width = roundf(fbox->width);
 	box_dst.height = roundf(fbox->height);
 
-	// Apply dstbox
-	if (!wlr_box_intersection(&box_dst, &box_tr, &box_dst))
-		return true;
-
 	// Apply scissors
-	if (!wlr_box_intersection(&box_dst, &renderer->scissor_box, &box_dst))
+	if (!wlr_box_intersection(&box_dst, &renderer->scissor_box, &box_dst)) {
+		wlr_log(WLR_ERROR, "No intersection dst/scissor");
 		return true;
-
-	// Project box_dst cropping to src coordinates
-	box_src.x = roundf((box_dst.x - box_tr.x)/matrix[0]);
-	box_src.y = roundf((box_dst.y - box_tr.y)/matrix[1]);
-	box_src.width = roundf(box_dst.width/matrix[0]);
-	box_src.height = roundf(box_tr.width/matrix[1]);
+	}
 
 	// Blend with renderer buffer
 	err = g2d_scale_and_blend(renderer->ctx, &tex_img, &buffer->image,
@@ -519,44 +458,35 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_g2d_buffer *buffer = renderer->current_buffer;
 	struct g2d_image src_img = {0};
-	struct exynos_bo *bo = NULL;
 	struct wlr_box box = {src_x, src_y, width, height};
-	bool ret = true;
 	int err = 0;
-
-	bo = exynos_mapped_buffer_create(renderer->dev, height * width * stride);
-	src_img = g2d_image_create_bits(bo,
-			get_g2d_format_from_drm(drm_format),
-			width, height, data, stride);
-
-	if (!ret) {
-		wlr_log(WLR_ERROR, "Error when creating a solid an image from data");
-		goto destroy_bo;
-	}
 
 	// Apply scissors
 	if (!wlr_box_intersection(&box, &renderer->scissor_box, &box))
-		goto destroy_bo;
+		return true;
+
+	src_img.width = width;
+	src_img.height = height;
+	src_img.stride = stride;
+	src_img.buf_type = G2D_IMGBUF_USERPTR;
+	src_img.color_mode = get_g2d_format_from_drm(drm_format);
+	src_img.user_ptr[0].userptr = (unsigned long)data;
+	src_img.user_ptr[0].size = height * stride;
 
 	err = g2d_blend(renderer->ctx, &src_img, &buffer->image, box.x, box.y,
 			dst_x, dst_y, box.width, box.height, G2D_OP_SRC);
 	if (err < 0) {
 		wlr_log(WLR_ERROR, "Error when invoking g2d_copy");
-		ret = false;
-		goto destroy_bo;
+		return false;
 	}
 
 	err = g2d_exec(renderer->ctx);
 	if (err < 0) {
 		wlr_log(WLR_ERROR, "Error when invoking g2d_exec");
-		ret = false;
-		goto destroy_bo;
+		return false;
 	}
 
-destroy_bo:
-	exynos_buffer_destroy(bo);
-
-	return ret;
+	return true;
 }
 
 static void g2d_destroy(struct wlr_renderer *wlr_renderer) {
@@ -613,7 +543,7 @@ static struct wlr_texture *g2d_texture_from_buffer(struct wlr_renderer *wlr_rend
 		struct wlr_buffer *buffer) {
 	wlr_log(WLR_DEBUG, "g2d_texture_from_buffer");
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
-	void *data;
+	void *data, *userptr;
 	uint32_t format;
 	size_t stride;
 	struct wlr_dmabuf_attributes dmabuf;
@@ -635,14 +565,23 @@ static struct wlr_texture *g2d_texture_from_buffer(struct wlr_renderer *wlr_rend
 		texture->image.color_mode = get_g2d_format_from_drm(dmabuf.format);
 	} else if (wlr_buffer_begin_data_ptr_access(buffer,
 			WLR_BUFFER_DATA_PTR_ACCESS_READ, &data, &format, &stride)) {
-		texture->bo = exynos_mapped_buffer_create(renderer->dev,
-				buffer->height * stride);
-		texture->image = g2d_image_create_bits(texture->bo,
-				get_g2d_format_from_drm(format),
-				buffer->width, buffer->height, data, stride);
+		userptr = malloc(buffer->height * stride);
+		if (!userptr) {
+			wlr_log(WLR_ERROR, "Error when allocating image buffer");
+			return NULL;
+		}
+		texture->userptr = userptr;
+		memcpy(userptr, data, buffer->height * stride);
+
+		texture->image.width = buffer->width;
+		texture->image.height = buffer->height;
+		texture->image.stride = stride;
+		texture->image.buf_type = G2D_IMGBUF_USERPTR;
+		texture->image.color_mode = get_g2d_format_from_drm(format);
+		texture->image.user_ptr[0].userptr = (unsigned long)userptr;
+		texture->image.user_ptr[0].size = buffer->height * stride;
 
 		wlr_buffer_end_data_ptr_access(buffer);
-
 	} else {
 		return NULL;
 	}
