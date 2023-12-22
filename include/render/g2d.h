@@ -50,7 +50,6 @@ struct wlr_g2d_texture {
 
 	struct g2d_image image;
 	struct exynos_bo *bo;
-	void *userptr;
 
 	struct wl_list link; // wlr_g2d_renderer.textures
 };
