@@ -343,6 +343,7 @@ static bool g2d_render_subtexture_with_matrix(
 	struct wlr_g2d_buffer *buffer = renderer->current_buffer;
 	struct wlr_box box_src, box_dst;
 
+	float alpha_x, alpha_y, beta_x, beta_y;
 	int err = 0;
 
 	box_dst.x = roundf(fbox->x*matrix[0]/fbox->width + matrix[2]);
@@ -355,13 +356,13 @@ static bool g2d_render_subtexture_with_matrix(
 		return true;
 
 	// Compute box_dst scaled and translated coordinates in texture
-	float alpha_x = texture->image.width/fbox->width;
-	float beta_x = -alpha_x*fbox->x*matrix[0]/fbox->width - matrix[2];
-	float alpha_y = texture->image.height/fbox->height;
-	float beta_y = -alpha_y*fbox->y*matrix[4]/fbox->height - matrix[5];
+	alpha_x = texture->image.width/fbox->width;
+	beta_x = alpha_x*fbox->x*matrix[0]/fbox->width + matrix[2];
+	alpha_y = texture->image.height/fbox->height;
+	beta_y = alpha_y*fbox->y*matrix[4]/fbox->height + matrix[5];
 
-	box_src.x = box_dst.x*alpha_x + beta_x;
-	box_src.y = box_dst.y*alpha_y + beta_y;
+	box_src.x = box_dst.x*alpha_x - beta_x;
+	box_src.y = box_dst.y*alpha_y - beta_y;
 	box_src.width = roundf(box_dst.width * alpha_x);
 	box_src.height = roundf(box_dst.height * alpha_y);
 
@@ -457,12 +458,22 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_g2d_buffer *buffer = renderer->current_buffer;
 	struct g2d_image src_img = {0};
-	struct wlr_box box = {src_x, src_y, width, height};
+	struct wlr_box box_src, box_dst;
 	int err = 0;
 
+	box_dst.x = dst_x;
+	box_dst.y = dst_y;
+	box_dst.width = width;
+	box_dst.height = height;
+
 	// Apply scissors
-	if (!wlr_box_intersection(&box, &renderer->scissor_box, &box))
+	if (!wlr_box_intersection(&box_dst, &renderer->scissor_box, &box_dst))
 		return true;
+
+	box_src.x = src_x + box_dst.x - dst_x;
+	box_src.y = src_y + box_dst.y - dst_y;
+	box_src.width = box_dst.width;
+	box_src.height = box_dst.height;
 
 	src_img.width = width;
 	src_img.height = height;
@@ -472,10 +483,10 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 	src_img.user_ptr[0].userptr = (unsigned long)data;
 	src_img.user_ptr[0].size = height * stride;
 
-	err = g2d_blend(renderer->ctx, &src_img, &buffer->image, box.x, box.y,
-			dst_x, dst_y, box.width, box.height, G2D_OP_SRC);
+	err = g2d_blend(renderer->ctx, &src_img, &buffer->image, box_src.x, box_src.y,
+			box_dst.x, box_dst.y, box_dst.width, box_dst.height, G2D_OP_SRC);
 	if (err < 0) {
-		wlr_log(WLR_ERROR, "Error when invoking g2d_copy");
+		wlr_log(WLR_ERROR, "Error when invoking g2d_blend");
 		return false;
 	}
 
