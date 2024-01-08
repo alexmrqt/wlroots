@@ -4,7 +4,6 @@ drm_exynos = dependency('libdrm_exynos',
 	required: 'g2d' in renderers)
 
 wlr_files += files(
-        'pass.c',
 	'pixel_format.c',
 	'renderer.c',
 )

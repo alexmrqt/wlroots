@@ -6,6 +6,8 @@
 #include <wlr/render/g2d.h>
 #include <wlr/render/wlr_renderer.h>
 
+#include <wlr/util/box.h>
+
 #include <libdrm/exynos_drmif.h>
 #include <exynos/exynos_drm.h>
 #include <exynos/exynos_fimg2d.h>
@@ -54,19 +56,11 @@ struct wlr_g2d_texture {
 	struct wl_list link; // wlr_g2d_renderer.textures
 };
 
-struct wlr_g2d_render_pass {
-	struct wlr_render_pass base;
-	struct wlr_g2d_buffer *buffer;
-};
-
 struct wlr_gles2_renderer *gles2_get_renderer(
 	struct wlr_renderer *wlr_renderer);
 
 uint32_t get_g2d_format_from_drm(uint32_t fmt);
 uint32_t get_drm_format_from_g2d(uint32_t fmt);
 const uint32_t *get_g2d_drm_formats(size_t *len);
-
-struct wlr_g2d_render_pass *begin_g2d_render_pass(
-	struct wlr_g2d_buffer *buffer);
 
 #endif

@@ -192,7 +192,7 @@ static bool g2d_bind_buffer(struct wlr_renderer *wlr_renderer,
 	return true;
 }
 
-static bool g2d_begin(struct wlr_renderer *wlr_renderer, uint32_t width,
+static void g2d_begin(struct wlr_renderer *wlr_renderer, uint32_t width,
 		uint32_t height) {
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 
@@ -205,8 +205,6 @@ static bool g2d_begin(struct wlr_renderer *wlr_renderer, uint32_t width,
 	renderer->scissor_box.height = height;
 
 	assert(renderer->current_buffer != NULL);
-
-	return true;
 }
 
 static void g2d_end(struct wlr_renderer *wlr_renderer) {
@@ -421,12 +419,6 @@ static const uint32_t *g2d_get_shm_texture_formats(
 	return get_g2d_drm_formats(len);
 }
 
-static const struct wlr_drm_format_set *g2d_get_dmabuf_texture_formats(
-		struct wlr_renderer *wlr_renderer) {
-	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
-	return &renderer->drm_formats;
-}
-
 static const struct wlr_drm_format_set *g2d_get_render_formats(
 		struct wlr_renderer *wlr_renderer) {
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
@@ -508,11 +500,6 @@ static void g2d_destroy(struct wlr_renderer *wlr_renderer) {
 	free(renderer);
 }
 
-static int g2d_get_drm_fd(struct wlr_renderer *wlr_renderer) {
-	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
-	return renderer->drm_fd;
-}
-
 static uint32_t g2d_get_render_buffer_caps(struct wlr_renderer *wlr_renderer) {
 	return WLR_BUFFER_CAP_DMABUF;
 }
@@ -526,8 +513,7 @@ static struct wlr_g2d_texture *g2d_texture_create(
 		return NULL;
 	}
 
-	wlr_texture_init(&texture->wlr_texture, &renderer->wlr_renderer,
-		&texture_impl, width, height);
+	wlr_texture_init(&texture->wlr_texture, &texture_impl, width, height);
 
 	texture->renderer = renderer;
 
@@ -580,22 +566,6 @@ static struct wlr_texture *g2d_texture_from_buffer(struct wlr_renderer *wlr_rend
 	return &texture->wlr_texture;
 }
 
-static struct wlr_render_pass *g2d_begin_buffer_pass(struct wlr_renderer *wlr_renderer,
-		struct wlr_buffer *wlr_buffer, const struct wlr_buffer_pass_options *options) {
-	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
-
-	struct wlr_g2d_buffer *buffer = get_or_create_buffer(renderer, wlr_buffer);
-	if (buffer == NULL) {
-		return NULL;
-	}
-
-	struct wlr_g2d_render_pass *pass = begin_g2d_render_pass(buffer);
-	if (pass == NULL) {
-		return NULL;
-	}
-	return &pass->base;
-}
-
 static const struct wlr_renderer_impl renderer_impl = {
 	.bind_buffer = g2d_bind_buffer,
 	.begin = g2d_begin,
@@ -605,13 +575,10 @@ static const struct wlr_renderer_impl renderer_impl = {
 	.render_subtexture_with_matrix = g2d_render_subtexture_with_matrix,
 	.render_quad_with_matrix = g2d_render_quad_with_matrix,
 	.get_shm_texture_formats = g2d_get_shm_texture_formats,
-	.get_dmabuf_texture_formats = g2d_get_dmabuf_texture_formats,
 	.get_render_formats = g2d_get_render_formats,
 	.preferred_read_format = g2d_preferred_read_format,
 	.read_pixels = g2d_read_pixels,
 	.destroy = g2d_destroy,
-	.get_drm_fd = g2d_get_drm_fd,
 	.get_render_buffer_caps = g2d_get_render_buffer_caps,
 	.texture_from_buffer = g2d_texture_from_buffer,
-	.begin_buffer_pass = g2d_begin_buffer_pass,
 };
