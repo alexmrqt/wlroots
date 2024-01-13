@@ -288,12 +288,12 @@ static void g2d_clear(struct wlr_renderer *wlr_renderer,
 			renderer->scissor_box.width,
 			renderer->scissor_box.height);
 	if (ret < 0) {
-		wlr_log(WLR_ERROR, "Error when invoking g2d_solid_fill");
+		wlr_log(WLR_ERROR, "Error when invoking g2d_solid_fill (%d)", ret);
 	}
 
 	ret = g2d_exec(renderer->ctx);
 	if (ret < 0) {
-		wlr_log(WLR_ERROR, "Error when invoking g2d_exec");
+		wlr_log(WLR_ERROR, "Error when invoking g2d_exec (%d)", ret);
 	}
 }
 
@@ -407,11 +407,11 @@ static void g2d_render_quad_with_matrix(struct wlr_renderer *wlr_renderer,
 	ret = g2d_solid_fill(renderer->ctx, &buffer->image, 
 			box.x, box.y, box.width, box.height);
 	if (ret < 0)
-		wlr_log(WLR_ERROR, "Error when invoking g2d_blend");
+		wlr_log(WLR_ERROR, "Error when invoking g2d_blend (%d)", ret);
 
 	ret = g2d_exec(renderer->ctx);
 	if (ret < 0)
-		wlr_log(WLR_ERROR, "Error when invoking g2d_exec");
+		wlr_log(WLR_ERROR, "Error when invoking g2d_exec (%d)", ret);
 }
 
 static const uint32_t *g2d_get_shm_texture_formats(
@@ -548,7 +548,12 @@ static struct wlr_texture *g2d_texture_from_buffer(struct wlr_renderer *wlr_rend
 	} else if (wlr_buffer_begin_data_ptr_access(buffer,
 			WLR_BUFFER_DATA_PTR_ACCESS_READ, &data, &format, &stride)) {
 		texture->bo = exynos_bo_create(renderer->dev, buffer->height * stride, 0);
+		if (!texture->bo)
+			return NULL;
 		mapped_ptr = exynos_bo_map(texture->bo);
+		if (!mapped_ptr)
+			return NULL;
+
 		memcpy(mapped_ptr, data, buffer->height * stride);
 
 		texture->image.bo[0] = texture->bo->handle;
