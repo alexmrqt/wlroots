@@ -97,10 +97,8 @@ static void destroy_buffer(struct wlr_g2d_buffer *buffer) {
 	wl_list_remove(&buffer->link);
 	wl_list_remove(&buffer->buffer_destroy.link);
 
-	for (int i=0 ; i < G2D_PLANE_MAX_NR ; ++i) {
-		if (buffer->image.bo[i]) {
-			drmCloseBufferHandle(drm_fd, buffer->image.bo[i]);
-		}
+	if (buffer->image.bo[0]) {
+		drmCloseBufferHandle(drm_fd, buffer->image.bo[0]);
 	}
 
 	free(buffer);
@@ -148,14 +146,13 @@ static struct wlr_g2d_buffer *get_or_create_buffer(struct wlr_g2d_renderer *rend
 		goto error_buffer;
 	}
 
-	assert(dmabuf.n_planes < G2D_PLANE_MAX_NR);
-
-	for (int i=0 ; i < dmabuf.n_planes ; ++i) {
-		exynos_prime_fd_to_handle(renderer->dev, dmabuf.fd[i], &buffer->image.bo[i]);
+	if (dmabuf.n_planes > 1) {
+		wlr_log(WLR_INFO, "DMA-BUF has %d planes, but G2D renderer only supports a single one", dmabuf.n_planes);
 	}
+
+	exynos_prime_fd_to_handle(renderer->dev, dmabuf.fd[0], &buffer->image.bo[0]);
 	buffer->image.width = dmabuf.width;
 	buffer->image.height = dmabuf.height;
-	//G2D does not support multiple strides in a single g2d_image
 	buffer->image.stride = dmabuf.stride[0];
 	buffer->image.buf_type = G2D_IMGBUF_GEM;
 	buffer->image.color_mode = get_g2d_format_from_drm(dmabuf.format);
@@ -530,15 +527,13 @@ static struct wlr_texture *g2d_texture_from_buffer(struct wlr_renderer *wlr_rend
 	struct wlr_g2d_texture *texture = g2d_texture_create(renderer, buffer->width, buffer->height);
 
 	if (wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
-		assert(dmabuf.n_planes < G2D_PLANE_MAX_NR);
-
-		for (int i=0 ; i < dmabuf.n_planes ; ++i) {
-			exynos_prime_fd_to_handle(renderer->dev, dmabuf.fd[i],
-					&texture->image.bo[i]);
+		if (dmabuf.n_planes > 1) {
+			wlr_log(WLR_INFO, "DMA-BUF has %d planes, but G2D renderer only supports a single one", dmabuf.n_planes);
 		}
+
+		exynos_prime_fd_to_handle(renderer->dev, dmabuf.fd[0], &texture->image.bo[0]);
 		texture->image.width = dmabuf.width;
 		texture->image.height = dmabuf.height;
-		//G2D does not support multiple strides in a single g2d_image
 		texture->image.stride = dmabuf.stride[0];
 		texture->image.buf_type = G2D_IMGBUF_GEM;
 		texture->image.color_mode = get_g2d_format_from_drm(dmabuf.format);
