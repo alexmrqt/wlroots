@@ -20,7 +20,4 @@ struct wlr_renderer *wlr_g2d_renderer_create_with_drm_fd(int drm_fd);
 bool wlr_renderer_is_g2d(struct wlr_renderer *wlr_renderer);
 bool wlr_texture_is_g2d(struct wlr_texture *texture);
 
-unsigned int float_to_g2d_color(const float color[static 4], uint32_t g2d_format);
-bool can_g2d_handle_transform(const float matrix[static 9]);
-
 #endif

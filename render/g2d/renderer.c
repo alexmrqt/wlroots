@@ -213,7 +213,7 @@ static void g2d_end(struct wlr_renderer *wlr_renderer) {
 	assert(renderer->current_buffer != NULL);
 }
 
-unsigned int float_to_g2d_color(const float color[static 4], uint32_t g2d_format) {
+static unsigned int float_to_g2d_color(const float color[static 4], uint32_t g2d_format) {
 	float red = color[0];
 	float green = color[1];
 	float blue = color[2];
@@ -311,7 +311,7 @@ static void g2d_scissors(struct wlr_renderer *wlr_renderer,
 	renderer->scissor_box = dst;
 }
 
-bool can_g2d_handle_transform(const float matrix[static 9]) {
+static bool can_g2d_handle_transform(const float matrix[static 9]) {
 	return matrix[1] < 1e-5f && matrix[1] > -1e-5f && matrix[3] < 1e-5f && matrix[3] > -1e-5f && matrix[0] > 0.0 && matrix[4] > 0.0;
 }
 
