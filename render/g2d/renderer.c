@@ -312,7 +312,7 @@ static void g2d_scissors(struct wlr_renderer *wlr_renderer,
 }
 
 bool can_g2d_handle_transform(const float matrix[static 9]) {
-	return matrix[1] < 1e-5f || matrix[1] > -1e-5f || matrix[3] < 1e-5f || matrix[3] > -1e-5f || matrix[0] < 0.0 || matrix[4] < 0.0;
+	return matrix[1] < 1e-5f && matrix[1] > -1e-5f && matrix[3] < 1e-5f && matrix[3] > -1e-5f && matrix[0] > 0.0 && matrix[4] > 0.0;
 }
 
 //TODO: support alpha
@@ -320,9 +320,8 @@ static bool g2d_render_subtexture_with_matrix(
 		struct wlr_renderer *wlr_renderer, struct wlr_texture *wlr_texture,
 		const struct wlr_fbox *fbox, const float matrix[static 9],
 		float alpha) {
-	// Only simple translation and scaling can be accelerated
 	if (!can_g2d_handle_transform(matrix)) {
-		wlr_log(WLR_ERROR, "G2D cannot render complex matrix transformations");
+		wlr_log(WLR_ERROR, "G2D renderer can only handle translation and scaling");
 		return false;
 	}
 
@@ -373,12 +372,10 @@ static bool g2d_render_subtexture_with_matrix(
 	return true;
 }
 
-
 static void g2d_render_quad_with_matrix(struct wlr_renderer *wlr_renderer,
 		const float color[static 4], const float matrix[static 9]) {
-	// Only simple translation and scaling can be accelerated
 	if (!can_g2d_handle_transform(matrix)) {
-		wlr_log(WLR_ERROR, "G2D cannot render complex matrix transformations");
+		wlr_log(WLR_ERROR, "G2D renderer can only handle translation and scaling");
 		return;
 	}
 
