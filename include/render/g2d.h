@@ -23,25 +23,16 @@ struct wlr_g2d_renderer {
 	struct wlr_renderer wlr_renderer;
 	struct wlr_box scissor_box;
 
-	struct wl_list buffers; // wlr_g2d_buffer_list.link
 	struct wl_list textures; // wlr_g2d_buffer_list.link
 
 	int drm_fd;
 	struct g2d_context *ctx;
 	struct exynos_device *dev;
 
-	struct wlr_g2d_buffer *current_buffer;
+	struct wlr_buffer *current_buffer;
 	uint32_t width, height;
 
 	struct wlr_drm_format_set drm_formats;
-};
-
-struct wlr_g2d_buffer {
-	struct wlr_buffer *buffer;
-
-	struct wl_listener buffer_destroy;
-
-	struct wl_list link; // wlr_g2d_renderer.buffers
 };
 
 struct wlr_g2d_gem_buffer {
