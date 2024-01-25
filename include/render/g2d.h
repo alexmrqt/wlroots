@@ -23,8 +23,8 @@ struct wlr_g2d_renderer {
 	struct wlr_renderer wlr_renderer;
 	struct wlr_box scissor_box;
 
-	struct wl_list buffers; // wlr_g2d_buffer.link
-	struct wl_list textures; // wlr_g2d_texture.link
+	struct wl_list buffers; // wlr_g2d_buffer_list.link
+	struct wl_list textures; // wlr_g2d_buffer_list.link
 
 	int drm_fd;
 	struct g2d_context *ctx;
@@ -38,29 +38,38 @@ struct wlr_g2d_renderer {
 
 struct wlr_g2d_buffer {
 	struct wlr_buffer *buffer;
-	struct wlr_g2d_renderer *renderer;
-
-	struct g2d_image image;
 
 	struct wl_listener buffer_destroy;
+
 	struct wl_list link; // wlr_g2d_renderer.buffers
+};
+
+struct wlr_g2d_gem_buffer {
+	struct wlr_buffer base;
+
+	struct wlr_dmabuf_attributes dmabuf;
+
+	uint32_t format;
+	uint32_t stride;
+
+	uint64_t size;
+	struct exynos_bo *bo;
 };
 
 struct wlr_g2d_texture {
 	struct wlr_texture wlr_texture;
-	struct wlr_g2d_renderer *renderer;
 
-	struct g2d_image image;
-	struct exynos_bo *bo;
+	struct wlr_buffer *buffer;
 
 	struct wl_list link; // wlr_g2d_renderer.textures
 };
 
-struct wlr_gles2_renderer *gles2_get_renderer(
-	struct wlr_renderer *wlr_renderer);
-
 uint32_t get_g2d_format_from_drm(uint32_t fmt);
 uint32_t get_drm_format_from_g2d(uint32_t fmt);
 const uint32_t *get_g2d_drm_formats(size_t *len);
+
+bool wlr_buffer_is_g2d_gem(struct wlr_buffer *wlr_buffer);
+struct wlr_g2d_gem_buffer *create_g2d_gem_buffer(struct exynos_device *dev,
+		int width, int height, const struct wlr_drm_format *format);
 
 #endif
