@@ -440,9 +440,9 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 		err = -1;
 		goto free_gem_buffer;
 	}
-
-	err = g2d_blend(renderer->ctx, &img_src, &img_dst, src_x, src_y,
-			dst_x, dst_y, width, height, G2D_OP_SRC);
+	err = g2d_copy_with_scale(renderer->ctx, &img_src, &img_dst,
+			src_x, src_y, img_src.width, img_src.height,
+			dst_x, dst_y, width, height, 0);
 	if (err < 0) {
 		wlr_log(WLR_ERROR, "Error when invoking g2d_blend (%d)", err);
 		goto free_gem_buffer;
@@ -461,6 +461,7 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 		wlr_buffer_end_data_ptr_access(buffer_dst);
 	} else {
 		err = -1;
+		goto free_gem_buffer;
 	}
 
 free_gem_buffer:
