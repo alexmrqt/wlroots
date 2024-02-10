@@ -52,6 +52,8 @@ struct wlr_g2d_texture {
 
 	struct wlr_buffer *buffer;
 
+	struct wlr_renderer *renderer; //not needed in master
+
 	struct wl_list link; // wlr_g2d_renderer.textures
 };
 
