@@ -43,8 +43,10 @@ struct wlr_g2d_gem_buffer *create_g2d_gem_buffer(struct exynos_device *dev,
 		return NULL;
 	}
 	uint32_t g2d_color_mode = get_g2d_format_from_drm(format->format);
-	if (!g2d_color_mode)
+	if (!g2d_color_mode) {
+		wlr_log(WLR_ERROR, "G2D does not support drm format %"PRIu32"", format->format);
 		return NULL;
+	}
 
 	struct wlr_g2d_gem_buffer *buffer = calloc(1, sizeof(*buffer));
 	if (buffer == NULL)
@@ -56,8 +58,10 @@ struct wlr_g2d_gem_buffer *create_g2d_gem_buffer(struct exynos_device *dev,
 	buffer->size = buffer->base.height * buffer->stride;
 
 	buffer->bo = exynos_bo_create(dev, buffer->size, 0);
-	if (!buffer->bo)
+	if (!buffer->bo) {
+		wlr_log(WLR_ERROR, "Failed to create an exynos BO of size %"PRIu64"", buffer->size);
 		goto create_destroy;
+	}
 
 	int prime_fd;
 	exynos_prime_handle_to_fd(dev, buffer->bo->handle, &prime_fd);
