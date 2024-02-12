@@ -66,14 +66,55 @@ struct wlr_renderer *wlr_g2d_renderer_create_with_drm_fd(int drm_fd) {
 	return &renderer->wlr_renderer;
 }
 
+static bool g2d_image_from_wlr_buffer(struct wlr_renderer *wlr_renderer,
+		struct g2d_image *img, struct wlr_buffer *buffer, uint32_t flags) {
+	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
+	struct wlr_dmabuf_attributes dmabuf;
+	void *data;
+	uint32_t format;
+	size_t stride;
+
+	if (buffer == NULL) {
+		wlr_log(WLR_ERROR, "Cannot create g2d_image from NULL wlr_buffer");
+		return false;
+	}
+
+	if (wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
+		exynos_prime_fd_to_handle(renderer->dev, dmabuf.fd[0], &img->bo[0]);
+		img->stride = dmabuf.stride[0];
+		img->buf_type = G2D_IMGBUF_GEM;
+		img->color_mode = get_g2d_format_from_drm(dmabuf.format);
+	} else if (wlr_buffer_begin_data_ptr_access(buffer, flags, &data, &format,
+				&stride)) {
+		wlr_buffer_end_data_ptr_access(buffer);
+
+		img->user_ptr[0].userptr = (unsigned int)data;
+		img->user_ptr[0].size = buffer->height * stride;
+		img->stride = stride;
+		img->buf_type = G2D_IMGBUF_USERPTR;
+		img->color_mode = get_g2d_format_from_drm(format);
+	} else {
+		wlr_log(WLR_ERROR, "Cannot create g2d_image from a buffer that is not dma-buf nor readable");
+		return false;
+	}
+
+	img->width = buffer->width;
+	img->height = buffer->height;
+
+	return true;
+}
+
 static struct wlr_buffer* wlr_g2d_gem_buffer_from_wlr_buffer(struct wlr_renderer *wlr_renderer,
 		struct wlr_buffer *buffer_src) {
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_g2d_gem_buffer *buffer_gem;
 	struct wlr_buffer *buffer_dst;
-	void *data_src, *data_gem;
-	uint32_t format_src, format_gem;
-	size_t stride_src, stride_gem;
+	struct g2d_image img_src = {0};
+	struct g2d_image img_dst = {0};
+	void *data_src;
+	uint32_t format_src;
+	size_t stride_src;
+	int err;
 
 	if (buffer_src == NULL) {
 		wlr_log(WLR_ERROR, "Cannot copy NULL wlr_buffer to a wlr_g2d_gem_buffer");
@@ -83,6 +124,7 @@ static struct wlr_buffer* wlr_g2d_gem_buffer_from_wlr_buffer(struct wlr_renderer
 	if (wlr_buffer_begin_data_ptr_access(buffer_src,
 				WLR_BUFFER_DATA_PTR_ACCESS_READ, &data_src,
 				&format_src, &stride_src)) {
+		wlr_buffer_end_data_ptr_access(buffer_src);
 
 		buffer_gem = create_g2d_gem_buffer(renderer->dev,
 				buffer_src->width, buffer_src->height,
@@ -93,52 +135,31 @@ static struct wlr_buffer* wlr_g2d_gem_buffer_from_wlr_buffer(struct wlr_renderer
 		}
 
 		buffer_dst = &buffer_gem->base;
-		if (wlr_buffer_begin_data_ptr_access(buffer_dst,
-			WLR_BUFFER_DATA_PTR_ACCESS_WRITE, &data_gem,
-			&format_gem, &stride_gem)) {
+		if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_src, buffer_src,
+					WLR_BUFFER_DATA_PTR_ACCESS_READ))
+			return NULL;
+		if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_dst, buffer_dst,
+					WLR_BUFFER_DATA_PTR_ACCESS_WRITE))
+			return NULL;
 
-			memcpy(data_gem, data_src, buffer_src->height * stride_gem);
-
-			wlr_buffer_end_data_ptr_access(buffer_dst);
-			wlr_buffer_end_data_ptr_access(buffer_src);
-
-			return buffer_dst;
-		} else {
-			wlr_log(WLR_ERROR, "Cannot copy wlr_buffer to non-writable wlr_g2d_gem_buffer");
-			wlr_buffer_end_data_ptr_access(buffer_src);
-			wlr_buffer_drop(buffer_dst);
-			buffer_dst = NULL;
+		err = g2d_copy(renderer->ctx, &img_src, &img_dst,
+				0, 0, 0, 0, buffer_src->width, buffer_src->height);
+		if (err < 0) {
+			wlr_log(WLR_ERROR, "Error when invoking g2d_copy (%d)", err);
 			return NULL;
 		}
+
+		err = g2d_exec(renderer->ctx);
+		if (err < 0) {
+			wlr_log(WLR_ERROR, "Error when invoking g2d_exec (%d)", err);
+			return NULL;
+		}
+
+		return buffer_dst;
 	} else {
 		wlr_log(WLR_ERROR, "Cannot copy non-readable wlr_buffer to wlr_g2d_gem_buffer");
 		return NULL;
 	}
-}
-
-static bool g2d_image_from_wlr_buffer(struct wlr_renderer *wlr_renderer,
-		struct g2d_image *img, struct wlr_buffer *buffer) {
-	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
-	struct wlr_dmabuf_attributes dmabuf;
-
-	if (buffer == NULL) {
-		wlr_log(WLR_ERROR, "Cannot create g2d_image from NULL wlr_buffer");
-		return false;
-	}
-
-	if (!wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
-		wlr_log(WLR_ERROR, "Cannot create g2d_image from a non dma-buf buffer");
-		return false;
-	}
-
-	exynos_prime_fd_to_handle(renderer->dev, dmabuf.fd[0], &img->bo[0]);
-	img->width = buffer->width;
-	img->height = buffer->height;
-	img->stride = dmabuf.stride[0];
-	img->buf_type = G2D_IMGBUF_GEM;
-	img->color_mode = get_g2d_format_from_drm(dmabuf.format);
-
-	return true;
 }
 
 static const struct wlr_texture_impl texture_impl;
@@ -160,27 +181,15 @@ static bool g2d_texture_update_from_buffer(struct wlr_texture *texture,
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
 	struct wlr_buffer *buffer_src = buffer;
 	struct wlr_buffer *buffer_dst = g2d_get_texture(texture)->buffer;
-	struct wlr_dmabuf_attributes dmabuf;
 	struct g2d_image img_src = {0};
 	struct g2d_image img_dst = {0};
 	int rects_len = 0;
 	int err = 0;
 
-	if (!wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
-		buffer_src = wlr_g2d_gem_buffer_from_wlr_buffer(wlr_renderer, buffer);
-		if (!buffer_src)
-			return false;
-		buffer_src = wlr_buffer_lock(buffer_src);
-	}
-
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_src, buffer_src)) {
-		err = -1;
-		goto free_buffer_gem;
-	}
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_dst, buffer_dst)) {
-		err = -1;
-		goto free_buffer_gem;
-	}
+	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_src, buffer_src, WLR_BUFFER_DATA_PTR_ACCESS_READ))
+		return false;
+	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_dst, buffer_dst, WLR_BUFFER_DATA_PTR_ACCESS_WRITE))
+		return false;
 
 	pixman_box32_t *rects = pixman_region32_rectangles(damage, &rects_len);
 	for (int i = 0; i < rects_len; i++) {
@@ -191,22 +200,16 @@ static bool g2d_texture_update_from_buffer(struct wlr_texture *texture,
 		err = g2d_copy(renderer->ctx, &img_src, &img_dst,
 				rect.x1, rect.y1, rect.x1, rect.y1, width, height);
 		if (err < 0)
-			wlr_log(WLR_ERROR, "Error when invoking g2d_blend (%d)", err);
+			wlr_log(WLR_ERROR, "Error when invoking g2d_copy (%d)", err);
 	}
 
 	err = g2d_exec(renderer->ctx);
 	if (err < 0) {
 		wlr_log(WLR_ERROR, "Error when invoking g2d_exec (%d)", err);
-		goto free_buffer_gem;
+		return false;
 	}
 
-free_buffer_gem:
-	if (buffer_src != buffer) {
-		wlr_buffer_unlock(buffer_src);
-		wlr_buffer_drop(buffer_src);
-	}
-
-	return (err>=0);
+	return true;
 }
 
 static void g2d_texture_destroy(struct wlr_texture *wlr_texture) {
@@ -342,7 +345,7 @@ static void g2d_clear(struct wlr_renderer *wlr_renderer,
 	struct g2d_image img = {0};
 	int ret = 0;
 
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img, buffer))
+	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img, buffer, WLR_BUFFER_DATA_PTR_ACCESS_WRITE))
 		return;
 	img.color = float_to_g2d_color(color, img.color_mode);
 
@@ -379,7 +382,6 @@ static bool can_g2d_handle_transform(const float matrix[static 9]) {
 	return matrix[1] < 1e-5f && matrix[1] > -1e-5f && matrix[3] < 1e-5f && matrix[3] > -1e-5f && matrix[0] > 0.0 && matrix[4] > 0.0;
 }
 
-//TODO: support alpha
 static bool g2d_render_subtexture_with_matrix(
 		struct wlr_renderer *wlr_renderer, struct wlr_texture *wlr_texture,
 		const struct wlr_fbox *fbox, const float matrix[static 9],
@@ -401,10 +403,10 @@ static bool g2d_render_subtexture_with_matrix(
 	float alpha_x, alpha_y, beta_x, beta_y;
 	int err = 0;
 
-	box_dst.x = roundf(fbox->x*matrix[0]/fbox->width + matrix[2]);
-	box_dst.y = roundf(fbox->y*matrix[4]/fbox->height + matrix[5]);
-	box_dst.width = roundf(fbox->width);
-	box_dst.height = roundf(fbox->height);
+	box_dst.x = roundf(fbox->x*matrix[0] + matrix[2]);
+	box_dst.y = roundf(fbox->y*matrix[4] + matrix[5]);
+	box_dst.width = roundf(fbox->width*matrix[0]);
+	box_dst.height = roundf(fbox->height*matrix[4]);
 
 	// Apply scissors
 	if (!wlr_box_intersection(&box_dst, &renderer->scissor_box, &box_dst))
@@ -421,15 +423,17 @@ static bool g2d_render_subtexture_with_matrix(
 	box_src.width = roundf(box_dst.width * alpha_x);
 	box_src.height = roundf(box_dst.height * alpha_y);
 
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_src, buffer_src))
+	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_src, buffer_src,
+				WLR_BUFFER_DATA_PTR_ACCESS_READ))
 		return false;
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_dst, buffer_dst))
+	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_dst, buffer_dst,
+				WLR_BUFFER_DATA_PTR_ACCESS_WRITE))
 		return false;
 
-	// Blend with renderer buffer
-	err = g2d_scale_and_blend(renderer->ctx, &img_src, &img_dst,
+	// Copy in renderer buffer
+	err = g2d_copy_with_scale(renderer->ctx, &img_src, &img_dst,
 			box_src.x, box_src.y, box_src.width, box_src.height,
-			box_dst.x, box_dst.y, box_dst.width, box_dst.height, G2D_OP_OVER);
+			box_dst.x, box_dst.y, box_dst.width, box_dst.height, 0);
 			
 	if (err < 0) {
 		wlr_log(WLR_ERROR, "Error when invoking g2d_scale_and_blend (%d)", err);
@@ -458,7 +462,7 @@ static void g2d_render_quad_with_matrix(struct wlr_renderer *wlr_renderer,
 	struct wlr_box box = {0, 0, 0, 0};
 	int ret = 0;
 
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img, buffer))
+	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img, buffer, WLR_BUFFER_DATA_PTR_ACCESS_WRITE))
 		return;
 
 	// Convert matrix to int
@@ -522,59 +526,36 @@ static bool g2d_read_pixels(struct wlr_renderer *wlr_renderer,
 		uint32_t width, uint32_t height, uint32_t src_x, uint32_t src_y,
 		uint32_t dst_x, uint32_t dst_y, void *data) {
 	struct wlr_g2d_renderer *renderer = g2d_get_renderer(wlr_renderer);
-	struct wlr_g2d_gem_buffer *gem_buffer;
 	struct wlr_buffer *buffer_src = renderer->current_buffer;
-	struct wlr_buffer *buffer_dst;
 	struct g2d_image img_src = {0};
 	struct g2d_image img_dst = {0};
-	void *data_gem;
-	uint32_t format_gem;
-	size_t stride_gem;
 	int err = 0;
 
-	gem_buffer = create_g2d_gem_buffer(renderer->dev, width, height,
-		wlr_drm_format_set_get(&renderer->drm_formats, drm_format));
-	if (!gem_buffer)
+	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_src, buffer_src, WLR_BUFFER_DATA_PTR_ACCESS_READ))
 		return false;
-	buffer_dst = wlr_buffer_lock(&gem_buffer->base);
 
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_src, buffer_src)) {
-		err = -1;
-		goto free_gem_buffer;
-	}
-	if (!g2d_image_from_wlr_buffer(wlr_renderer, &img_dst, buffer_dst)) {
-		err = -1;
-		goto free_gem_buffer;
-	}
-	err = g2d_copy_with_scale(renderer->ctx, &img_src, &img_dst,
-			src_x, src_y, img_src.width, img_src.height,
-			dst_x, dst_y, width, height, 0);
+	img_dst.width = width;
+	img_dst.height = height;
+	img_dst.user_ptr[0].userptr = (unsigned int)data;
+	img_dst.user_ptr[0].size = height * stride;
+	img_dst.stride = stride;
+	img_dst.buf_type = G2D_IMGBUF_USERPTR;
+	img_dst.color_mode = get_g2d_format_from_drm(drm_format);
+
+	err = g2d_copy(renderer->ctx, &img_src, &img_dst,
+			src_x, src_y, dst_x, dst_y, width, height);
 	if (err < 0) {
-		wlr_log(WLR_ERROR, "Error when invoking g2d_blend (%d)", err);
-		goto free_gem_buffer;
+		wlr_log(WLR_ERROR, "Error when invoking g2d_copy (%d)", err);
+		return false;
 	}
 
 	err = g2d_exec(renderer->ctx);
 	if (err < 0) {
 		wlr_log(WLR_ERROR, "Error when invoking g2d_exec (%d)", err);
-		goto free_gem_buffer;
+		return false;
 	}
 
-	if (wlr_buffer_begin_data_ptr_access(buffer_dst,
-				WLR_BUFFER_DATA_PTR_ACCESS_READ, &data_gem,
-				&format_gem, &stride_gem)) {
-		memcpy(data, data_gem, height * stride_gem);
-		wlr_buffer_end_data_ptr_access(buffer_dst);
-	} else {
-		err = -1;
-		goto free_gem_buffer;
-	}
-
-free_gem_buffer:
-	wlr_buffer_unlock(&gem_buffer->base);
-	wlr_buffer_drop(&gem_buffer->base);
-
-	return (err>=0);
+	return true;
 }
 
 static void g2d_destroy(struct wlr_renderer *wlr_renderer) {
